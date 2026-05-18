@@ -45,7 +45,7 @@ contract PolicyManager is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         _;
     }
 
-    // 1. Proponi l'ingresso di una nuova banca
+    // Proponi l'ingresso di una nuova banca
     function proposeBankOnboarding(address bank) external onlyAuthority {
         uint256 id = proposalCount++;
 
@@ -58,7 +58,7 @@ contract PolicyManager is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         _vote(id, msg.sender);
     }
 
-    // 2. Le altre autorita' votano
+    // Le altre autorita' votano
     function vote(uint256 proposalId) external onlyAuthority {
         _vote(proposalId, msg.sender);
     }

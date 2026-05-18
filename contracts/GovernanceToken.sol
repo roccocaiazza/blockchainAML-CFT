@@ -26,7 +26,7 @@ contract GovernanceToken is Initializable, ERC721Upgradeable, OwnableUpgradeable
         _nextTokenId = 1; // Partiamo dal token ID 1
     }
 
-    // 1. FUNZIONE DI MINTING
+    // FUNZIONE DI MINTING
     // Solo il Super-Admin (Deployer) può chiamarla durante la fase di "Big Bang"
     function mint(address to) public onlyOwner {
         require(balanceOf(to) == 0, "Errore: L'autorita' possiede gia' un token di governance");
@@ -34,7 +34,7 @@ contract GovernanceToken is Initializable, ERC721Upgradeable, OwnableUpgradeable
         _safeMint(to, tokenId);
     }
 
-    // 2. LOGICA SOULBOUND (NON TRASFERIBILE)
+    // LOGICA SOULBOUND (NON TRASFERIBILE)
     // Sovrascriviamo la funzione interna _update di OpenZeppelin (versione 5)
     function _update(address to, uint256 tokenId, address auth)
         internal
@@ -52,7 +52,7 @@ contract GovernanceToken is Initializable, ERC721Upgradeable, OwnableUpgradeable
         return super._update(to, tokenId, auth);
     }
 
-    // 3. AUTORIZZAZIONE AGGIORNAMENTI (UUPS)
+    // AUTORIZZAZIONE AGGIORNAMENTI (UUPS)
     // Solo l'owner attuale può aggiornare il codice del contratto in futuro
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

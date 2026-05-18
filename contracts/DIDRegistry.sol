@@ -44,7 +44,7 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         __Ownable_init(initialOwner);
     }
 
-    // 1. REGISTRAZIONE DELL'IDENTITÀ
+    // REGISTRAZIONE DELL'IDENTITÀ
     function registerDID(
         string calldata did,
         string calldata publicKey,
@@ -69,14 +69,14 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DIDRegistered(msg.sender, did, publicKey, block.timestamp);
     }
 
-    // 2. RISOLUZIONE DEL DID (Chiama questa funzione per ottenere la chiave pubblica di una banca/autorità)
+    // RISOLUZIONE DEL DID (Chiama questa funzione per ottenere la chiave pubblica di una banca/autorità)
     function resolveDID(string calldata did) external view returns (DIDDocument memory) {
         address owner = _didToOwner[did];
         if (owner == address(0)) revert NotRegistered(owner);
         return _documents[owner];
     }
 
-    // 3. AGGIORNAMENTO DELLE CHIAVI
+    // AGGIORNAMENTO DELLE CHIAVI
     function updateDID(
         string calldata newPublicKey,
         string calldata newServiceEndpoint
@@ -95,7 +95,7 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DIDUpdated(msg.sender, _documents[msg.sender].publicKey, block.timestamp);
     }
 
-    // 4. DISATTIVAZIONE
+    // DISATTIVAZIONE
     function revokeDID() external {
         if (!_registered[msg.sender]) revert NotRegistered(msg.sender);
         if (!_documents[msg.sender].active) revert DIDInactive(msg.sender);
