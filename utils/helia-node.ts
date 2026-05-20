@@ -16,11 +16,11 @@ export async function getNode(): Promise<{ helia: Helia; fs: UnixFS }> {
 
   const { createHelia } = await loadESM("helia");
   const { unixfs } = await loadESM("@helia/unixfs");
-  const { MemoryBlockstore } = await loadESM("blockstore-core");
-  const { MemoryDatastore } = await loadESM("datastore-core");
+  const { FsBlockstore } = await loadESM("blockstore-fs");
+  const { FsDatastore } = await loadESM("datastore-fs");
 
-  const blockstore = new MemoryBlockstore();
-  const datastore = new MemoryDatastore();
+  const blockstore = new FsBlockstore("./.ipfs/blocks");
+  const datastore = new FsDatastore("./.ipfs/data");
 
   // start: false (we don't need libp2p networking for a local lab)
   _helia = await createHelia({ blockstore, datastore, start: false });
@@ -49,7 +49,3 @@ export async function addFile(content: string | Uint8Array): Promise<string> {
   const cid = await fs.addBytes(bytes);
   return cid.toString();
 }
-
-// Le restanti funzioni (getFile, getFileAsString, addFileFromDisk, saveFileToDisk) 
-// sono state rimosse per pulizia, in quanto non utilizzate nell'attuale SDK.
-

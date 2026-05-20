@@ -8,6 +8,9 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract GovernanceToken is Initializable, ERC721Upgradeable, OwnableUpgradeable, UUPSUpgradeable {
     
+    error AlreadyHasToken();
+    error SoulboundTransferBlocked();
+
     // Variabile di stato per tenere traccia dell'ID del prossimo token
     uint256 private _nextTokenId;
 
@@ -29,7 +32,7 @@ contract GovernanceToken is Initializable, ERC721Upgradeable, OwnableUpgradeable
     // FUNZIONE DI MINTING
     // Solo il Super-Admin (Deployer) può chiamarla durante la fase di "Big Bang"
     function mint(address to) public onlyOwner {
-        require(balanceOf(to) == 0, "Errore: L'autorita' possiede gia' un token di governance");
+        if(balanceOf(to) > 0) revert AlreadyHasToken();
         uint256 tokenId = _nextTokenId++;
         _safeMint(to, tokenId);
     }
@@ -46,7 +49,7 @@ contract GovernanceToken is Initializable, ERC721Upgradeable, OwnableUpgradeable
         // Se 'from' non è zero (non è un minting) e 'to' non è zero (non è un burning),
         // allora qualcuno sta cercando di trasferire il token. Lo blocchiamo!
         if (from != address(0) && to != address(0)) {
-            revert("Soulbound: I token di governance non possono essere trasferiti");
+            revert SoulboundTransferBlocked();
         }
 
         return super._update(to, tokenId, auth);

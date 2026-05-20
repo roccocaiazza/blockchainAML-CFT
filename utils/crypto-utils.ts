@@ -15,7 +15,7 @@ export interface EncryptedPayload {
 
 export class CryptoEngine {
 
-    // 1. GENERAZIONE CHIAVI ASIMMETRICHE (Identità del Nodo)
+    // GENERAZIONE CHIAVI ASIMMETRICHE (Identità del Nodo)
     // Utilizzate per popolare il campo 'publicKey' nel DIDRegistry
     static generateRSAKeyPair(): KeyPair {
         const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
@@ -33,13 +33,13 @@ export class CryptoEngine {
         return { publicKey, privateKey };
     }
 
-    // 2. GENERAZIONE CHIAVE SIMMETRICA (Data Encryption Key - DEK)
+    // GENERAZIONE CHIAVE SIMMETRICA (Data Encryption Key - DEK)
     // Chiave usa e getta per cifrare il singolo dossier investigativo
     static generateDEK(): Buffer {
         return crypto.randomBytes(32); // 256 bit per AES-256
     }
 
-    // 3. CIFRATURA DEL DOCUMENTO (Off-Chain / IPFS)
+    // CIFRATURA DEL DOCUMENTO (Off-Chain / IPFS)
     // Cifra il file (es. PDF o JSON) utilizzando AES-256-GCM
     static encryptDocument(fileBuffer: Buffer, dek: Buffer): EncryptedPayload {
         const iv = crypto.randomBytes(12); // Initialization Vector consigliato per GCM
@@ -51,7 +51,7 @@ export class CryptoEngine {
         return { cipherText, iv, authTag };
     }
 
-    // 4. DECIFRATURA DEL DOCUMENTO
+    // DECIFRATURA DEL DOCUMENTO
     static decryptDocument(encryptedPayload: EncryptedPayload, dek: Buffer): Buffer {
         const decipher = crypto.createDecipheriv("aes-256-gcm", dek, encryptedPayload.iv);
         decipher.setAuthTag(encryptedPayload.authTag);
@@ -59,7 +59,7 @@ export class CryptoEngine {
         return Buffer.concat([decipher.update(encryptedPayload.cipherText), decipher.final()]);
     }
 
-    // 5. KEY WRAPPING (La Busta Digitale)
+    // KEY WRAPPING (La Busta Digitale)
     // Cifra la DEK (chiave simmetrica) utilizzando la chiave pubblica RSA del destinatario
     static wrapKey(dek: Buffer, recipientPublicKey: string): string {
         const encryptedDEK = crypto.publicEncrypt(
@@ -74,7 +74,7 @@ export class CryptoEngine {
         return encryptedDEK.toString("base64");
     }
 
-    // 6. KEY UNWRAPPING (Apertura della Busta)
+    // KEY UNWRAPPING (Apertura della Busta)
     // Il destinatario usa la propria chiave privata RSA per recuperare la DEK
     static unwrapKey(encryptedDEKBase64: string, recipientPrivateKey: string): Buffer {
         const encryptedDEK = Buffer.from(encryptedDEKBase64, "base64");
@@ -88,5 +88,23 @@ export class CryptoEngine {
             encryptedDEK
         );
         return dek;
+    }
+
+    // KEY COMMITMENT (Notarizzazione on-chain dell'integrità della DEK)
+    // Calcola SHA-256(DEK) da registrare on-chain PRIMA del key wrapping.
+    // Il ricevente, dopo aver aperto la busta, ricalcola SHA-256(DEK_decifrata) e
+    // confronta con il valore on-chain: se divergono, ha prova crittografica
+    // che la busta è stata manomessa e può chiamare logDispute() con evidenza.
+    static computeDEKCommitment(dek: Buffer): string {
+        const hash = crypto.createHash("sha256").update(dek).digest();
+        // Ritorna come hex string con prefisso 0x per compatibilità bytes32 Solidity
+        return "0x" + hash.toString("hex");
+    }
+
+    // VERIFICA DEL KEY COMMITMENT (lato ricevente)
+    // Restituisce true se la DEK decifrata corrisponde al commitment notarizzato on-chain.
+    static verifyDEKCommitment(dek: Buffer, onChainCommitment: string): boolean {
+        const computed = CryptoEngine.computeDEKCommitment(dek);
+        return computed.toLowerCase() === onChainCommitment.toLowerCase();
     }
 }
