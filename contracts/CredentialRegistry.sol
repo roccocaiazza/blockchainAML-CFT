@@ -6,6 +6,11 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
+    
+    error CredentialAlreadyExists();
+    error CredentialNotFound();
+    error UnauthorizedRevoke();
+    error AlreadyRevoked();
 
     struct Credential {
         address issuer;          // Chi ha emesso la credenziale (es. UIF)
@@ -36,7 +41,7 @@ contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeabl
         address subject,
         bytes32 credentialHash
     ) external {
-        require(credentials[credId].issuedAt == 0, "Errore: Credenziale gia' esistente");
+        if(credentials[credId].issuedAt != 0) revert CredentialAlreadyExists();
 
         credentials[credId] = Credential({
             issuer: msg.sender,
@@ -51,16 +56,16 @@ contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeabl
 
     // Legge una credenziale
     function getCredential(bytes32 credId) external view returns (Credential memory) {
-        require(credentials[credId].issuedAt != 0, "Errore: Credenziale non trovata");
+        if(credentials[credId].issuedAt == 0) revert CredentialNotFound();
         return credentials[credId];
     }
 
     // Revoca una credenziale (solo l'emittente puo' farlo)
     function revokeCredential(bytes32 credId) external {
         Credential storage cred = credentials[credId];
-        require(cred.issuedAt != 0, "Errore: Credenziale non trovata");
-        require(cred.issuer == msg.sender, "Errore: Solo l'emittente puo' revocare");
-        require(!cred.revoked, "Errore: Gia' revocata");
+        if(cred.issuedAt == 0) revert CredentialNotFound();
+        if(cred.issuer != msg.sender) revert UnauthorizedRevoke();
+        if(cred.revoked) revert AlreadyRevoked();
 
         cred.revoked = true;
         emit CredentialRevoked(credId);
