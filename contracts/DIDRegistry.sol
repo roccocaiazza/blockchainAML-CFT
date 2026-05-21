@@ -7,27 +7,23 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
-    // Struttura dati per memorizzare le informazioni dell'Identità
     struct DIDDocument {
         address owner;
-        bytes publicKey;        // Chiave pubblica per le Buste Digitali (es. crittografia RSA/ECC)
-        bytes serviceEndpoint;  // URL per contattare il nodo off-chain dell'ente
+        bytes publicKey;       // Chiave pubblica RSA usata per le Buste Digitali
+        bytes serviceEndpoint; // URL del nodo off-chain dell'ente
         uint256 createdAt;
         uint256 updatedAt;
         bool active;
     }
 
-    // Mappature per collegare gli indirizzi Ethereum ai DID e viceversa
     mapping(address => DIDDocument) private _documents;
     mapping(address => bool) private _registered;
     mapping(bytes32 => address) private _didToOwner;
 
-    // Eventi per l'Audit Trail
     event DIDRegistered(address indexed owner, bytes32 indexed did, bytes publicKey, uint256 timestamp);
     event DIDUpdated(address indexed owner, bytes publicKey, uint256 timestamp);
     event DIDRevoked(address indexed owner, uint256 timestamp);
 
-    // Errori Custom (risparmiano molto gas rispetto ai classici 'require' con stringhe)
     error AlreadyRegistered(address owner);
     error NotRegistered(address owner);
     error DIDInactive(address owner);
@@ -39,12 +35,11 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         _disableInitializers();
     }
 
-    // Inizializzazione del Proxy
     function initialize(address initialOwner) initializer public {
         __Ownable_init(initialOwner);
     }
 
-    // REGISTRAZIONE DELL'IDENTITÀ
+    // Registra un nuovo DID con chiave pubblica e service endpoint.
     function registerDID(
         bytes32 did,
         bytes calldata publicKey,
@@ -69,14 +64,14 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DIDRegistered(msg.sender, did, publicKey, block.timestamp);
     }
 
-    // RISOLUZIONE DEL DID (Chiama questa funzione per ottenere la chiave pubblica di una banca/autorità)
+    // Restituisce il DIDDocument associato a un DID, inclusa la chiave pubblica RSA.
     function resolveDID(bytes32 did) external view returns (DIDDocument memory) {
         address owner = _didToOwner[did];
         if (owner == address(0)) revert NotRegistered(owner);
         return _documents[owner];
     }
 
-    // AGGIORNAMENTO DELLE CHIAVI
+    // Aggiorna la chiave pubblica o il service endpoint del proprio DID.
     function updateDID(
         bytes calldata newPublicKey,
         bytes calldata newServiceEndpoint
@@ -95,7 +90,7 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DIDUpdated(msg.sender, _documents[msg.sender].publicKey, block.timestamp);
     }
 
-    // DISATTIVAZIONE
+    // Disattiva il DID. Operazione irreversibile.
     function revokeDID() external {
         if (!_registered[msg.sender]) revert NotRegistered(msg.sender);
         if (!_documents[msg.sender].active) revert DIDInactive(msg.sender);
@@ -104,12 +99,11 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DIDRevoked(msg.sender, block.timestamp);
     }
 
-    // Helper per verificare se un'identità è operativa
+    // Restituisce true se il DID è registrato e attivo.
     function isActive(bytes32 did) external view returns (bool) {
         address owner = _didToOwner[did];
         return _registered[owner] && _documents[owner].active;
     }
 
-    // Autorizzazione per l'aggiornamento del contratto (UUPS)
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}
 }

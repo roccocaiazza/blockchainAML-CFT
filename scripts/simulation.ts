@@ -1,6 +1,7 @@
 import { ethers, upgrades } from "hardhat";
 import { CryptoEngine } from "../utils/crypto-utils";
 import { DIDService, CredentialService, StorageService, DossierService } from "../services";
+import type { VerifiableCredential } from "../services/CredentialService";
 
 async function main() {
     console.log("SIMULAZIONE END-TO-END REALE: LIFECYCLE CRITTOGRAFICO E STORAGE IPFS\n");
@@ -83,9 +84,32 @@ async function main() {
     console.log(`[PolicyManager] Eseguibile dopo: ${new Date((Number(proposal.quorumReachedAt) + 48 * 3600) * 1000).toISOString()}`);
     console.log(`[PolicyManager] (In ambiente di test il Timelock viene saltato — in produzione si attende 48h)\n`);
 
-    // Emissione VC per la banca (separata dall'onboarding per semplicità)
-    const bankCredId = "VC-AUTH-BANCA-001";
-    await credService.issueCredential(uif, bankCredId, bank.address, "CONTENUTO_OFFCHAIN_VC");
+    // Emissione VC per la banca con Selective Disclosure
+    // La VC completa contiene dati sensibili (IBAN, codice fiscale, ecc.)
+    // On-chain viene registrato solo il presentationHash dei campi minimi (type + subject)
+    const bankVC: VerifiableCredential = {
+        id: "VC-AUTH-BANCA-001",
+        type: "DataProviderCredential",
+        issuer: await uif.getAddress(),
+        subject: await bank.getAddress(),
+        issuanceDate: new Date().toISOString(),
+        claims: {
+            role: "DataProvider",
+            authorizedSince: "2026-01-01",
+            // Dati sensibili — NON rivelati nella presentation ordinaria
+            iban: "IT60X0542811101000000123456",
+            fiscalCode: "BNCXXX00A00X000X",
+            abiCode: "05428"
+        }
+    };
+
+    // Emette la VC rivelando solo "type" e "subject" — il minimo per dimostrare l'autorizzazione
+    const bankPresentation = await credService.issueCredential(uif, bankVC, ["type", "subject"]);
+
+    // Verifica off-chain della presentation (simula il controllo prima di submitDossier)
+    const onChainCred = await credRegistryContract.getCredential(ethers.id(bankVC.id));
+    const isValid = credService.verifyPresentation(bankPresentation, onChainCred.credentialHash);
+    console.log(`[Verifica SD] Presentation valida: ${isValid}`);
 
     // =========================================================================
     // FASE 3: Creazione Dossier con Key Commitment
@@ -98,7 +122,7 @@ async function main() {
     await dossierService.createAndSubmitDossier({
         submitter: bank,
         dossierId: dossierId,
-        bankCredId: bankCredId,
+        bankCredId: bankVC.id,
         recipientDid: "did:aml:uif",
         recipientAddress: uif.address,
         documentBuffer: Buffer.from(documentoTesto, "utf-8")
@@ -133,7 +157,6 @@ async function main() {
 
     // Simula: la GdF delega un perito, poi lo revoca d'urgenza senza quorum
     const delegationId = ethers.id("DELEGA-PERITO-COMPROMESSO-001");
-    const [, , , , , peritoForense] = await ethers.getSigners();
 
     // La GdF diventa handler del dossier (simuliamo avanzando lo stato)
     // Per semplicità, creiamo una delega diretta della GdF su un dossier separato

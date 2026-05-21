@@ -6,21 +6,20 @@ import "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 
 contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
-    
+
     error CredentialAlreadyExists();
     error CredentialNotFound();
     error UnauthorizedRevoke();
     error AlreadyRevoked();
 
     struct Credential {
-        address issuer;          // Chi ha emesso la credenziale (es. UIF)
-        address subject;         // Chi la riceve (es. Banca)
-        bytes32 credentialHash;  // L'hash del documento JSON off-chain
+        address issuer;          // Chi ha emesso la credenziale
+        address subject;         // Chi la riceve
+        bytes32 credentialHash;  // Hash del documento off-chain (Selective Disclosure)
         uint256 issuedAt;
         bool revoked;
     }
 
-    // Mappatura per trovare una credenziale dal suo ID univoco
     mapping(bytes32 => Credential) private credentials;
 
     event CredentialIssued(bytes32 indexed credId, address issuer, address subject);
@@ -35,7 +34,7 @@ contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeabl
         __Ownable_init(initialOwner);
     }
 
-    // Emette una nuova credenziale
+    // Emette una nuova credenziale. L'hash registrato è il presentationHash della Selective Disclosure.
     function issueCredential(
         bytes32 credId,
         address subject,
@@ -54,13 +53,13 @@ contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeabl
         emit CredentialIssued(credId, msg.sender, subject);
     }
 
-    // Legge una credenziale
+    // Restituisce i dati di una credenziale.
     function getCredential(bytes32 credId) external view returns (Credential memory) {
         if(credentials[credId].issuedAt == 0) revert CredentialNotFound();
         return credentials[credId];
     }
 
-    // Revoca una credenziale (solo l'emittente puo' farlo)
+    // Revoca una credenziale. Solo l'emittente originale può farlo.
     function revokeCredential(bytes32 credId) external {
         Credential storage cred = credentials[credId];
         if(cred.issuedAt == 0) revert CredentialNotFound();
@@ -71,7 +70,7 @@ contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeabl
         emit CredentialRevoked(credId);
     }
 
-    // Verifica lo stato di validita'
+    // Restituisce true se la credenziale esiste e non è revocata.
     function verifyCredential(bytes32 credId) external view returns (bool) {
         Credential memory cred = credentials[credId];
         return cred.issuedAt != 0 && !cred.revoked;

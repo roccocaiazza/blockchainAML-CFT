@@ -1,11 +1,8 @@
 import { addFile, stopNode } from "../utils/helia-node";
 
 export class StorageService {
-    /**
-     * Carica un documento su IPFS tramite Helia e restituisce il CID formattato.
-     * @param buffer Il contenuto crittografato (o in chiaro) da caricare
-     * @returns Una stringa nel formato "ipfs://[CID]"
-     */
+
+    // Carica un documento cifrato su IPFS e restituisce il CID nel formato "ipfs://[CID]".
     async uploadDocument(buffer: Buffer): Promise<string> {
         console.log("[StorageService] Caricamento su IPFS locale in corso...");
         const rawCid = await addFile(new Uint8Array(buffer));
@@ -14,9 +11,7 @@ export class StorageService {
         return ipfsUri;
     }
 
-    /**
-     * Ferma il nodo IPFS (utile per concludere in modo pulito gli script Node)
-     */
+    // Ferma il nodo IPFS in modo pulito.
     async shutdown(): Promise<void> {
         await stopNode();
     }
