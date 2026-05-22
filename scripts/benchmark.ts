@@ -128,14 +128,27 @@ async function main() {
             dekCommitment
         ));
 
+    // FSM: SUBMITTED → UNDER_ANALYSIS (step obbligatorio per la nuova FSM)
+    const dek1 = CryptoEngine.generateDEK();
+    const dekCommitment1 = CryptoEngine.computeDEKCommitment(dek1);
+    await measureTx("Transition Dossier (to UNDER_ANALYSIS)",
+        docRegistry.connect(uif).transitionDossier(
+            dossierId, 1, uif.address,
+            ethers.toUtf8Bytes("ipfs://mockCID_analysis"),
+            ethers.toUtf8Bytes("0xEncryptedDEK_analysis"),
+            dekCommitment1
+        ));
+
+    // FSM: UNDER_ANALYSIS → FISCAL_REVIEW
     const newDekCommitment = CryptoEngine.computeDEKCommitment(CryptoEngine.generateDEK());
-    await measureTx("Transition Dossier → FISCAL_REVIEW (con DEK Commitment)",
+    await measureTx("Transition Dossier (to FISCAL_REVIEW, con DEK Commitment)",
         docRegistry.connect(uif).transitionDossier(
             dossierId, 2, ade.address,
             ethers.toUtf8Bytes("ipfs://mockCID_v2"),
             ethers.toUtf8Bytes("0xEncryptedDEK_v2"),
             newDekCommitment
         ));
+    // A questo punto currentHandler = ade
 
     const delegationId = ethers.id("DELEGA-TEST-01");
     await measureTx("Delegate Access (TTL + depth check)",
