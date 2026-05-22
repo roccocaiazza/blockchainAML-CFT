@@ -43,6 +43,7 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         bytes ipfsCid;           // CID del documento cifrato su IPFS
         bytes encryptedDEK;      // Busta Digitale: DEK cifrata con la pubKey dell'handler
         bytes32 dekCommitment;   // SHA-256(DEK) notarizzato on-chain per verifica di integrità
+        bytes32 previousVersionHash;
         uint256 lastUpdated;
     }
 
@@ -59,6 +60,8 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
     // Emessi per costruire l'audit trail immutabile
     event DossierSubmitted(bytes32 indexed dossierId, address indexed submitter, bytes ipfsCid, bytes32 dekCommitment);
     event DossierStateTransitioned(bytes32 indexed dossierId, DossierState newState, address indexed handler, bytes32 dekCommitment);
+    // Emesso ad ogni transizione per vincolare le versioni in catena (Hash Chain)
+    event DossierVersioned(bytes32 indexed dossierId, bytes32 indexed previousVersionHash, bytes newIpfsCid, bytes32 newDekCommitment);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -110,14 +113,15 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
             ipfsCid: initialCid,
             encryptedDEK: initialEncryptedDEK,
             dekCommitment: dekCommitment,
+            previousVersionHash: bytes32(0), // nessuna versione precedente al primo submit
             lastUpdated: block.timestamp
         });
 
         emit DossierSubmitted(dossierId, msg.sender, initialCid, dekCommitment);
     }
 
-    // Avanza lo stato del dossier con transizioni rigide (Fix #2) e blocco in caso di
-    // disputa attiva (Fix #1). Solo l'handler corrente può chiamarla. ARCHIVED è terminale.
+    // Avanza lo stato del dossier con transizioni rigide e blocco in caso di
+    // disputa attiva. Solo l'handler corrente può chiamarla. ARCHIVED è terminale.
     function transitionDossier(
         bytes32 dossierId,
         DossierState newState,
@@ -151,6 +155,10 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
             revert DossierArchived();
         }
 
+        // Calcola l'hash della versione corrente prima di sovrascriverla (Hash Chain)
+        bytes32 prevHash = keccak256(d.ipfsCid);
+        d.previousVersionHash = prevHash;
+
         d.state = newState;
         d.currentHandler = nextHandler;
         d.ipfsCid = newCid;
@@ -159,6 +167,8 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         d.lastUpdated = block.timestamp;
 
         emit DossierStateTransitioned(dossierId, newState, msg.sender, newDekCommitment);
+        // Emette l'evento di versioning con il puntatore alla versione precedente
+        emit DossierVersioned(dossierId, prevHash, newCid, newDekCommitment);
     }
 
     // In produzione l'owner va trasferito al PolicyManager per attivare il controllo 3/3 sugli upgrade
