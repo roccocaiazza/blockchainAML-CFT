@@ -33,17 +33,22 @@ async function main() {
     await policyManagerContract.waitForDeployment();
 
     const DocumentRegistry = await ethers.getContractFactory("DocumentRegistry");
-    const docRegistryContract = (await upgrades.deployProxy(DocumentRegistry, [deployer.address, await credRegistryContract.getAddress()], { kind: 'uups' })) as any;
+    const docRegistryContract = (await upgrades.deployProxy(DocumentRegistry,
+        // Fix #2: uif.address obbligatorio
+        [deployer.address, await credRegistryContract.getAddress(), uif.address], { kind: 'uups' })) as any;
     await docRegistryContract.waitForDeployment();
 
-    // DelegationManager: inizializzato con le tre Core Authorities
     const DelegationManager = await ethers.getContractFactory("DelegationManager");
     const delegationManagerContract = (await upgrades.deployProxy(
         DelegationManager,
-        [deployer.address, await docRegistryContract.getAddress(), [uif.address, ade.address, gdf.address]],
+        // Fix #3: aggiunto didRegistryContract per la verifica DID in checkAccess
+        [deployer.address, await docRegistryContract.getAddress(), [uif.address, ade.address, gdf.address], await didRegistryContract.getAddress()],
         { kind: 'uups' }
     )) as any;
     await delegationManagerContract.waitForDeployment();
+
+    // Fix #1: collega DelegationManager al DocumentRegistry per il freeze in caso di disputa
+    await docRegistryContract.setDelegationManager(await delegationManagerContract.getAddress()).then((tx: any) => tx.wait());
 
     console.log("[SUCCESS] Contratti operativi.\n");
 

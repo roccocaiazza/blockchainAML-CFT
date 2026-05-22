@@ -13,6 +13,11 @@ interface ICredentialRegistry {
     function verifyCredential(bytes32 credId) external view returns (bool);
 }
 
+// Interfaccia minima per verificare se un dossier ha una disputa attiva
+interface IDelegationManager {
+    function activeDisputes(bytes32 dossierId) external view returns (bool);
+}
+
 contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     error DossierAlreadyExists();
@@ -23,6 +28,10 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
     error InvalidStateTransition();
     error DossierArchived();
     error InvalidDEKCommitment();
+    // Emesso quando si tenta di avanzare un dossier in disputa attiva
+    error DossierFrozen();
+    // Emesso quando la banca non indirizza la SOS alla UIF
+    error MustSubmitToUIF();
 
     // Ciclo di vita del dossier investigativo
     enum DossierState { SUBMITTED, UNDER_ANALYSIS, FISCAL_REVIEW, IN_INVESTIGATION, ARCHIVED }
@@ -41,6 +50,12 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
 
     ICredentialRegistry public credentialRegistry;
 
+    // Riferimento al DelegationManager per leggere activeDisputes e bloccare il dossier in caso di disputa
+    IDelegationManager public delegationManager;
+
+    // Indirizzo della UIF, unico destinatario obbligatorio della SOS iniziale
+    address public uifAddress;
+
     // Emessi per costruire l'audit trail immutabile
     event DossierSubmitted(bytes32 indexed dossierId, address indexed submitter, bytes ipfsCid, bytes32 dekCommitment);
     event DossierStateTransitioned(bytes32 indexed dossierId, DossierState newState, address indexed handler, bytes32 dekCommitment);
@@ -50,12 +65,25 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         _disableInitializers();
     }
 
-    function initialize(address initialOwner, address _credentialRegistryAddress) initializer public {
+    // Aggiunto _uifAddress come parametro obbligatorio: forza la SOS verso la UIF come primo handler
+    function initialize(
+        address initialOwner,
+        address _credentialRegistryAddress,
+        address _uifAddress
+    ) initializer public {
         __Ownable_init(initialOwner);
         credentialRegistry = ICredentialRegistry(_credentialRegistryAddress);
+        uifAddress = _uifAddress;
     }
 
-    // Sottomette una SOS. Verifica la VC della banca e registra il dekCommitment on-chain.
+    // Setter per il DelegationManager, chiamabile solo dall'owner dopo il deploy
+    // (evita la dipendenza circolare nell'initialize: DelegationManager richiede DocumentRegistry già deployato)
+    function setDelegationManager(address _delegationManager) external onlyOwner {
+        delegationManager = IDelegationManager(_delegationManager);
+    }
+
+    // Sottomette una SOS. Verifica la VC della banca, che il destinatario sia la UIF,
+    // e registra il dekCommitment on-chain.
     function submitDossier(
         bytes32 dossierId,
         bytes32 bankCredentialId,
@@ -66,6 +94,9 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
     ) external {
         if(dossiers[dossierId].lastUpdated != 0) revert DossierAlreadyExists();
         if(dekCommitment == bytes32(0)) revert InvalidDEKCommitment();
+
+        // La SOS deve essere sempre indirizzata alla UIF come primo handler
+        if(targetAuthority != uifAddress) revert MustSubmitToUIF();
 
         if(!credentialRegistry.verifyCredential(bankCredentialId)) revert BankNotAuthorized();
 
@@ -85,8 +116,8 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         emit DossierSubmitted(dossierId, msg.sender, initialCid, dekCommitment);
     }
 
-    // Avanza lo stato del dossier e aggiorna CID, Busta Digitale e dekCommitment.
-    // Solo l'handler corrente può chiamarla. ARCHIVED è terminale.
+    // Avanza lo stato del dossier con transizioni rigide (Fix #2) e blocco in caso di
+    // disputa attiva (Fix #1). Solo l'handler corrente può chiamarla. ARCHIVED è terminale.
     function transitionDossier(
         bytes32 dossierId,
         DossierState newState,
@@ -99,8 +130,26 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
         if(d.lastUpdated == 0) revert DossierNotFound();
         if(msg.sender != d.currentHandler) revert NotDossierHandler();
         if(d.state == DossierState.ARCHIVED) revert DossierArchived();
-        if(uint8(newState) <= uint8(d.state)) revert InvalidStateTransition();
         if(newDekCommitment == bytes32(0)) revert InvalidDEKCommitment();
+
+        // Blocca qualsiasi avanzamento se è aperta una disputa crittografica sul dossier
+        if(address(delegationManager) != address(0) && delegationManager.activeDisputes(dossierId)) {
+            revert DossierFrozen();
+        }
+
+        // Matrice di transizioni rigida con possibilità di archiviazione anticipata da qualsiasi stato.
+        // Ogni fase può essere chiusa direttamente (es. SOS infondata archiviata dalla UIF prima dell'AdE).
+        if (d.state == DossierState.SUBMITTED) {
+            if (newState != DossierState.UNDER_ANALYSIS && newState != DossierState.ARCHIVED) revert InvalidStateTransition();
+        } else if (d.state == DossierState.UNDER_ANALYSIS) {
+            if (newState != DossierState.FISCAL_REVIEW && newState != DossierState.ARCHIVED) revert InvalidStateTransition();
+        } else if (d.state == DossierState.FISCAL_REVIEW) {
+            if (newState != DossierState.IN_INVESTIGATION && newState != DossierState.ARCHIVED) revert InvalidStateTransition();
+        } else if (d.state == DossierState.IN_INVESTIGATION) {
+            if (newState != DossierState.ARCHIVED) revert InvalidStateTransition();
+        } else {
+            revert DossierArchived();
+        }
 
         d.state = newState;
         d.currentHandler = nextHandler;

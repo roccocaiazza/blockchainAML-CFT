@@ -85,14 +85,41 @@ async function main() {
     const DocumentRegistry = await ethers.getContractFactory("DocumentRegistry");
     const documentRegistry = await upgrades.deployProxy(
         DocumentRegistry,
-        [deployer.address, credAddress],
+        // Fix #2: uif.address obbligatorio come primo handler della SOS
+        [deployer.address, credAddress, uif.address],
         { kind: 'uups' }
     );
     await documentRegistry.waitForDeployment();
     const docAddress = await documentRegistry.getAddress();
     console.log(`[SUCCESS] DocumentRegistry (Proxy) distribuito all'indirizzo: ${docAddress}\n`);
 
+    // =========================================================================
+    // 6. DEPLOYMENT DEL DELEGATION MANAGER (PROXY UUPS)
+    // =========================================================================
+    console.log("[PROCESSO] Inizializzazione di DelegationManager...");
+    const DelegationManager = await ethers.getContractFactory("DelegationManager");
+    const delegationManager = await upgrades.deployProxy(
+        DelegationManager,
+        // Fix #3: aggiunto didAddress per la verifica DID in checkAccess
+        [deployer.address, docAddress, [uif.address, ade.address, gdf.address], didAddress],
+        { kind: 'uups' }
+    );
+    await delegationManager.waitForDeployment();
+    const delegAddress = await delegationManager.getAddress();
+    console.log(`[SUCCESS] DelegationManager (Proxy) distribuito all'indirizzo: ${delegAddress}\n`);
+
+    // Fix #1: collega il DelegationManager al DocumentRegistry (necessario per il freeze in disputa)
+    console.log("[PROCESSO] Collegamento DelegationManager → DocumentRegistry...");
+    await (await (documentRegistry as any).setDelegationManager(delegAddress)).wait();
+    console.log("[SUCCESS] Collegamento completato.\n");
+
     console.log("CONFIGURAZIONE TERMINATA: L'architettura dei contratti è pienamente operativa.");
+    console.log(`  GovernanceToken:   ${govAddress}`);
+    console.log(`  DIDRegistry:       ${didAddress}`);
+    console.log(`  CredentialRegistry:${credAddress}`);
+    console.log(`  PolicyManager:     ${policyAddress}`);
+    console.log(`  DocumentRegistry:  ${docAddress}`);
+    console.log(`  DelegationManager: ${delegAddress}`);
 }
 
 main().catch((error) => {

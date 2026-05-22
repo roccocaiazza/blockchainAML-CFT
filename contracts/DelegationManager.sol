@@ -18,6 +18,12 @@ interface IDocumentRegistry {
     );
 }
 
+// isActiveByAddress ritorna false se l'utente è registrato ma il DID è stato revocato,
+// true in tutti gli altri casi (non registrato = non revocato = permesso).
+interface IDIDRegistry {
+    function isActiveByAddress(address owner) external view returns (bool);
+}
+
 contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable {
 
     error NotAuthorizedToDelegate();
@@ -31,6 +37,9 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
     uint8 public constant MAX_DELEGATION_DEPTH = 2;
 
     IDocumentRegistry public documentRegistry;
+
+    // DIDRegistry per verificare che il DID del delegatee sia ancora attivo in checkAccess
+    IDIDRegistry public didRegistry;
 
     // Indirizzi delle tre Autorità Core (UIF, AdE, GdF), impostati all'inizializzazione
     mapping(address => bool) public isCoreAuthority;
@@ -65,10 +74,12 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
     function initialize(
         address initialOwner,
         address _documentRegistry,
-        address[] calldata _coreAuthorities
+        address[] calldata _coreAuthorities,
+        address _didRegistry
     ) initializer public {
         __Ownable_init(initialOwner);
         documentRegistry = IDocumentRegistry(_documentRegistry);
+        didRegistry = IDIDRegistry(_didRegistry);
         for (uint256 i = 0; i < _coreAuthorities.length; i++) {
             isCoreAuthority[_coreAuthorities[i]] = true;
         }
@@ -142,12 +153,21 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
     }
 
     // Verifica la validità di una delega risalendo ricorsivamente la catena padre-figlio (Lazy Revocation).
+    // Verifica anche che il DID del delegatee sia ancora attivo nel DIDRegistry.
+    // Se il DID è stato revocato, la delega è invalidata automaticamente senza dover chiamare revokeDelegation.
+    // Se il delegatee non ha un DID registrato, il controllo viene saltato (backward compatible).
     function checkAccess(bytes32 delegationId, address user, bytes32 dossierId) public view returns (bool) {
         if (delegationId == bytes32(0)) return false;
 
         Delegation memory d = delegations[delegationId];
 
         if (!d.active || block.timestamp > d.expiryTime || d.delegatee != user || d.dossierId != dossierId) {
+            return false;
+        }
+
+        // Se il DIDRegistry è configurato e il delegatee ha un DID esplicitamente revocato,
+        // la delega è automaticamente invalidata senza dover chiamare revokeDelegation.
+        if (address(didRegistry) != address(0) && !didRegistry.isActiveByAddress(user)) {
             return false;
         }
 

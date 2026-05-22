@@ -99,6 +99,15 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         emit DIDRevoked(msg.sender, block.timestamp);
     }
 
+    // Restituisce true se il DID associato all'owner address è registrato e attivo.
+    // Usato dal DelegationManager per invalidare le deleghe di un attore con DID revocato.
+    // Ritorna true anche se l'address non ha un DID registrato (comportamento permissivo:
+    // il controllo blocca solo chi ha ESPLICITAMENTE revocato il proprio DID, non chi non ne ha uno).
+    function isActiveByAddress(address owner) external view returns (bool) {
+        if (!_registered[owner]) return true; // non registrato = non revocato = permesso
+        return _documents[owner].active;
+    }
+
     // Restituisce true se il DID è registrato e attivo.
     function isActive(bytes32 did) external view returns (bool) {
         address owner = _didToOwner[did];

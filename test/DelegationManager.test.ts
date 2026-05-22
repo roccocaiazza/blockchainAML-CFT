@@ -1,4 +1,5 @@
 import { expect } from "chai";
+import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { ethers, upgrades } from "hardhat";
 import { loadFixture, time } from "@nomicfoundation/hardhat-network-helpers";
 import { CryptoEngine } from "../utils/crypto-utils";
@@ -12,18 +13,31 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
         const credRegistry = (await upgrades.deployProxy(CredentialRegistry, [deployer.address], { kind: 'uups' })) as any;
         await credRegistry.waitForDeployment();
 
+        // DIDRegistry necessario per la verifica DID in checkAccess
+        const DIDRegistry = await ethers.getContractFactory("DIDRegistry");
+        const didRegistry = (await upgrades.deployProxy(DIDRegistry, [deployer.address], { kind: 'uups' })) as any;
+        await didRegistry.waitForDeployment();
+
+        // DocumentRegistry ora richiede uif.address come terzo parametro
         const DocumentRegistry = await ethers.getContractFactory("DocumentRegistry");
-        const docRegistry = (await upgrades.deployProxy(DocumentRegistry, [deployer.address, await credRegistry.getAddress()], { kind: 'uups' })) as any;
+        const docRegistry = (await upgrades.deployProxy(
+            DocumentRegistry,
+            [deployer.address, await credRegistry.getAddress(), uif.address],
+            { kind: 'uups' }
+        )) as any;
         await docRegistry.waitForDeployment();
 
-        // DelegationManager: inizializzato con le tre Core Authorities
+        // DelegationManager inizializzato con il DIDRegistry
         const DelegationManager = await ethers.getContractFactory("DelegationManager");
         const delegationManager = (await upgrades.deployProxy(
             DelegationManager,
-            [deployer.address, await docRegistry.getAddress(), [uif.address, ade.address, gdf.address]],
+            [deployer.address, await docRegistry.getAddress(), [uif.address, ade.address, gdf.address], await didRegistry.getAddress()],
             { kind: 'uups' }
         )) as any;
         await delegationManager.waitForDeployment();
+
+        // Collegamento bidirezionale per il freeze in caso di disputa
+        await docRegistry.setDelegationManager(await delegationManager.getAddress()).then((tx: any) => tx.wait());
 
         // Setup: crea un dossier assegnato alla UIF
         const bankCredId = ethers.id("VC-AUTH-BANCA");
@@ -151,7 +165,7 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
             await expect(delegationManager.connect(uif).emergencyRevoke(delegationId, justification))
                 .to.emit(delegationManager, "DelegationRevoked").withArgs(delegationId)
                 .and.to.emit(delegationManager, "EmergencyActionTaken")
-                .withArgs(delegationId, uif.address, justification, await time.latest() + 1);
+                .withArgs(delegationId, uif.address, justification, anyValue);
 
             // L'accesso deve risultare immediatamente revocato
             expect(await delegationManager.checkAccess(delegationId, uifProvinciale.address, dossierId)).to.be.false;

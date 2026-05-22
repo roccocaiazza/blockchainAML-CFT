@@ -37,7 +37,8 @@ async function main() {
     const DocumentRegistry = await ethers.getContractFactory("DocumentRegistry");
     const startDeploy = performance.now();
     const docRegistry = (await upgrades.deployProxy(DocumentRegistry,
-        [deployer.address, await credRegistry.getAddress()], { kind: "uups" })) as any;
+        // uif.address obbligatorio come primo handler della SOS
+        [deployer.address, await credRegistry.getAddress(), uif.address], { kind: "uups" })) as any;
     await docRegistry.waitForDeployment();
     const endDeploy = performance.now();
 
@@ -45,10 +46,15 @@ async function main() {
     const deployReceipt = await deployTx.wait();
 
     const DelegationManager = await ethers.getContractFactory("DelegationManager");
-    const delegationManager = (await upgrades.deployProxy(DelegationManager,
-        [deployer.address, await docRegistry.getAddress(), [uif.address, ade.address, gdf.address]],
+    const delegationManager = (await upgrades.deployProxy(
+        DelegationManager,
+        // Aggiunto didRegistry per la verifica DID in checkAccess
+        [deployer.address, await docRegistry.getAddress(), [uif.address, ade.address, gdf.address], await didRegistry.getAddress()],
         { kind: "uups" })) as any;
     await delegationManager.waitForDeployment();
+
+    // Collega DelegationManager al DocumentRegistry per il freeze in caso di disputa
+    await docRegistry.setDelegationManager(await delegationManager.getAddress()).then((tx: any) => tx.wait());
 
     // Minting SBT a tutte e tre le autorità prima delle transazioni
     await governance.mint(uif.address).then((tx: any) => tx.wait());
