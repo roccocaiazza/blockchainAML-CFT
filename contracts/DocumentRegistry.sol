@@ -155,8 +155,7 @@ contract DocumentRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable 
             revert DossierArchived();
         }
 
-        // Calcola l'hash della versione corrente prima di sovrascriverla (Hash Chain)
-        bytes32 prevHash = keccak256(d.ipfsCid);
+        bytes32 prevHash = keccak256(abi.encodePacked(d.ipfsCid, d.dekCommitment, d.encryptedDEK));
         d.previousVersionHash = prevHash;
 
         d.state = newState;

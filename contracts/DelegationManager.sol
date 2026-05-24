@@ -32,6 +32,7 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
     error OnlyHandlerCanDispute();
     error MaxDepthExceeded();
     error NotCoreAuthority();
+    error DisputeNotActive();
 
     // Profondità massima della catena di sub-deleghe (0=Core, 1=Provinciale, 2=Perito)
     uint8 public constant MAX_DELEGATION_DEPTH = 2;
@@ -65,6 +66,7 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
 
     // Emesso da emergencyRevoke. Registrato nell'audit trail per verifiche ex-post.
     event EmergencyActionTaken(bytes32 indexed delegationId, address indexed authority, string justification, uint256 timestamp);
+    event DisputeResolved(bytes32 indexed dossierId, address indexed resolver);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -186,6 +188,17 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
         activeDisputes[dossierId] = true;
 
         emit DisputeLogged(dossierId, msg.sender, reason, commitment);
+    }
+
+    // Risolve una disputa attiva su un dossier, riabilitando le transizioni di stato.
+    // Chiamabile solo da una Core Authority.
+    function resolveDispute(bytes32 dossierId) external {
+        if (!isCoreAuthority[msg.sender]) revert NotCoreAuthority();
+        if (!activeDisputes[dossierId]) revert DisputeNotActive();
+
+        activeDisputes[dossierId] = false;
+
+        emit DisputeResolved(dossierId, msg.sender);
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

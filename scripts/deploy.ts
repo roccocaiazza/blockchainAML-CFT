@@ -13,9 +13,7 @@ async function main() {
 
     console.log("Fase 1: Deployment dei contratti di Governance e Identita'");
 
-    // =========================================================================
     // 1. DEPLOYMENT DEL GOVERNANCE TOKEN (PROXY UUPS)
-    // =========================================================================
     console.log("[PROCESSO] Inizializzazione di GovernanceToken...");
     const GovernanceToken = await ethers.getContractFactory("GovernanceToken");
     const governanceToken = await upgrades.deployProxy(
@@ -34,9 +32,7 @@ async function main() {
     await (await governanceToken.mint(gdf.address)).wait();
     console.log("[SUCCESS] Assegnazione dei Soulbound Token completata per UIF, AdE e GdF.\n");
 
-    // =========================================================================
     // 2. DEPLOYMENT DEL DID REGISTRY (PROXY UUPS)
-    // =========================================================================
     console.log("[PROCESSO] Inizializzazione di DIDRegistry...");
     const DIDRegistry = await ethers.getContractFactory("DIDRegistry");
     const didRegistry = await upgrades.deployProxy(
@@ -48,9 +44,7 @@ async function main() {
     const didAddress = await didRegistry.getAddress();
     console.log(`[SUCCESS] DIDRegistry (Proxy) distribuito all'indirizzo:     ${didAddress}\n`);
 
-    // =========================================================================
     // 3. DEPLOYMENT DEL CREDENTIAL REGISTRY (PROXY UUPS)
-    // =========================================================================
     console.log("[PROCESSO] Inizializzazione di CredentialRegistry...");
     const CredentialRegistry = await ethers.getContractFactory("CredentialRegistry");
     const credentialRegistry = await upgrades.deployProxy(
@@ -62,9 +56,7 @@ async function main() {
     const credAddress = await credentialRegistry.getAddress();
     console.log(`[SUCCESS] CredentialRegistry (Proxy) distribuito all'indirizzo: ${credAddress}\n`);
 
-    // =========================================================================
     // 4. DEPLOYMENT DEL POLICY MANAGER (PROXY UUPS)
-    // =========================================================================
     console.log("[PROCESSO] Inizializzazione di PolicyManager...");
     const PolicyManager = await ethers.getContractFactory("PolicyManager");
     const policyManager = await upgrades.deployProxy(
@@ -78,14 +70,12 @@ async function main() {
 
     console.log("Fase 2: Deployment del modulo di gestione documentale e stati dei dossier");
 
-    // =========================================================================
     // 5. DEPLOYMENT DEL DOCUMENT REGISTRY (PROXY UUPS)
-    // =========================================================================
     console.log("[PROCESSO] Inizializzazione di DocumentRegistry...");
     const DocumentRegistry = await ethers.getContractFactory("DocumentRegistry");
     const documentRegistry = await upgrades.deployProxy(
         DocumentRegistry,
-        // Fix #2: uif.address obbligatorio come primo handler della SOS
+        // uif.address obbligatorio come primo handler della SOS
         [deployer.address, credAddress, uif.address],
         { kind: 'uups' }
     );
@@ -93,14 +83,12 @@ async function main() {
     const docAddress = await documentRegistry.getAddress();
     console.log(`[SUCCESS] DocumentRegistry (Proxy) distribuito all'indirizzo: ${docAddress}\n`);
 
-    // =========================================================================
     // 6. DEPLOYMENT DEL DELEGATION MANAGER (PROXY UUPS)
-    // =========================================================================
     console.log("[PROCESSO] Inizializzazione di DelegationManager...");
     const DelegationManager = await ethers.getContractFactory("DelegationManager");
     const delegationManager = await upgrades.deployProxy(
         DelegationManager,
-        // Fix #3: aggiunto didAddress per la verifica DID in checkAccess
+        // aggiunto didAddress per la verifica DID in checkAccess
         [deployer.address, docAddress, [uif.address, ade.address, gdf.address], didAddress],
         { kind: 'uups' }
     );
@@ -108,7 +96,7 @@ async function main() {
     const delegAddress = await delegationManager.getAddress();
     console.log(`[SUCCESS] DelegationManager (Proxy) distribuito all'indirizzo: ${delegAddress}\n`);
 
-    // Fix #1: collega il DelegationManager al DocumentRegistry (necessario per il freeze in disputa)
+    // Collega il DelegationManager al DocumentRegistry (necessario per il freeze in disputa)
     console.log("[PROCESSO] Collegamento DelegationManager → DocumentRegistry...");
     await (await (documentRegistry as any).setDelegationManager(delegAddress)).wait();
     console.log("[SUCCESS] Collegamento completato.\n");

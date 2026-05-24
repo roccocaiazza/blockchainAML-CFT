@@ -34,20 +34,20 @@ async function main() {
 
     const DocumentRegistry = await ethers.getContractFactory("DocumentRegistry");
     const docRegistryContract = (await upgrades.deployProxy(DocumentRegistry,
-        // Fix #2: uif.address obbligatorio
+        // uif.address obbligatorio come primo handler della SOS
         [deployer.address, await credRegistryContract.getAddress(), uif.address], { kind: 'uups' })) as any;
     await docRegistryContract.waitForDeployment();
 
     const DelegationManager = await ethers.getContractFactory("DelegationManager");
     const delegationManagerContract = (await upgrades.deployProxy(
         DelegationManager,
-        // Fix #3: aggiunto didRegistryContract per la verifica DID in checkAccess
+        // aggiunto didRegistryContract per la verifica DID in checkAccess
         [deployer.address, await docRegistryContract.getAddress(), [uif.address, ade.address, gdf.address], await didRegistryContract.getAddress()],
         { kind: 'uups' }
     )) as any;
     await delegationManagerContract.waitForDeployment();
 
-    // Fix #1: collega DelegationManager al DocumentRegistry per il freeze in caso di disputa
+    // Collega DelegationManager al DocumentRegistry per il freeze in caso di disputa
     await docRegistryContract.setDelegationManager(await delegationManagerContract.getAddress()).then((tx: any) => tx.wait());
 
     console.log("[SUCCESS] Contratti operativi.\n");
@@ -58,9 +58,7 @@ async function main() {
     const storageService = new StorageService();
     const dossierService = new DossierService(docRegistryContract, didService, storageService);
 
-    // =========================================================================
     // FASE 1: Generazione Chiavi RSA e Registrazione Identità (DID)
-    // =========================================================================
     console.log("FASE 1: Registrazione Identità e Chiavi Pubbliche (DID)\n");
 
     const keysUIF = CryptoEngine.generateRSAKeyPair();
@@ -73,9 +71,7 @@ async function main() {
         didService.registerDID(bank, "did:aml:banca_x", keysBank.publicKey, "https://api.bancax.it")
     ]);
 
-    // =========================================================================
     // FASE 2: Onboarding della Banca — Quorum 2/3 + Timelock 48h
-    // =========================================================================
     console.log("\nFASE 2: Onboarding della Banca tramite Quorum Istituzionale + Timelock\n");
 
     // La UIF propone, l'AdE vota → quorum raggiunto, Timelock avviato
@@ -109,16 +105,14 @@ async function main() {
     };
 
     // Emette la VC rivelando solo "type" e "subject" — il minimo per dimostrare l'autorizzazione
-    const bankPresentation = await credService.issueCredential(uif, bankVC, ["type", "subject"]);
+    const bankPresentation = await credService.issueCredential(deployer, bankVC, ["type", "subject"]);
 
     // Verifica off-chain della presentation (simula il controllo prima di submitDossier)
     const onChainCred = await credRegistryContract.getCredential(ethers.id(bankVC.id));
     const isValid = credService.verifyPresentation(bankPresentation, onChainCred.credentialHash);
     console.log(`[Verifica SD] Presentation valida: ${isValid}`);
 
-    // =========================================================================
     // FASE 3: Creazione Dossier con Key Commitment
-    // =========================================================================
     console.log("\nFASE 3: Creazione Dossier, Storage IPFS e Key Commitment\n");
 
     const dossierId = "DOSSIER-AML-2026-001";
@@ -137,13 +131,11 @@ async function main() {
     const dossierOnChain = await docRegistryContract.dossiers(ethers.id(dossierId));
     console.log(`[Verifica] DEK Commitment on-chain: ${dossierOnChain.dekCommitment}`);
 
-    // =========================================================================
     // FASE 4: Triage UIF → Re-Wrapping per AdE con verifica Key Commitment
-    // =========================================================================
     console.log("\nFASE 4: Triage UIF, Verifica Key Commitment e Re-Wrapping per AdE\n");
 
     const documentoAggiornato = "SOS UFFICIALE + NOTA UIF: Accertata anomalia nei flussi. Si passa ad AdE.";
-    const STATE_FISCAL_REVIEW = 2;
+    const STATE_UNDER_ANALYSIS = 1;
 
     await dossierService.reviewAndForwardDossier({
         handler: uif,
@@ -151,13 +143,11 @@ async function main() {
         dossierId: dossierId,
         nextRecipientDid: "did:aml:ade",
         nextRecipientAddress: ade.address,
-        nextState: STATE_FISCAL_REVIEW,
+        nextState: STATE_UNDER_ANALYSIS,
         updatedDocumentBuffer: Buffer.from(documentoAggiornato, "utf-8")
     });
 
-    // =========================================================================
     // FASE 5: Emergency Policy — Revoca Fast-Track da parte della GdF
-    // =========================================================================
     console.log("\nFASE 5: Emergency Policy — Revoca Fast-Track (GdF)\n");
 
     // Simula: la GdF delega un perito, poi lo revoca d'urgenza senza quorum
@@ -171,9 +161,7 @@ async function main() {
     console.log(`[Emergency] Funzione: delegationManager.emergencyRevoke(delegationId, "Perito compromesso")`);
     console.log(`[Emergency] Evento EmergencyActionTaken registrato nell'audit trail on-chain.`);
 
-    // =========================================================================
     // FINE
-    // =========================================================================
     console.log("\nSIMULAZIONE CONCLUSA CON SUCCESSO.");
     console.log("Funzionalità verificate: FSM, Crittografia JIT, Key Commitment, Timelock, Emergency Policy.\n");
 

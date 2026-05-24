@@ -30,3 +30,6 @@
 
 # Snapshot cheatcodes output
 /snapshots
+
+# IPFS Local Data
+/.ipfs

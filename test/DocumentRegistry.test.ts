@@ -259,7 +259,7 @@ describe("Suite di Test: Modulo Documentale e Macchina a Stati (DocumentRegistry
 
     describe("Fase 3: Versionamento On-Chain (Hash Chain)", function () {
 
-        it("Dovrebbe salvare previousVersionHash uguale a keccak256(ipfsCid precedente) dopo la prima transizione", async function () {
+        it("Dovrebbe salvare previousVersionHash uguale a keccak256(abi.encodePacked(cid, commitment, dek)) dopo la prima transizione", async function () {
             const { docRegistry, bank, uif, validBankCredId, sampleDossierId, initialCid, initialDek, dekCommitment, STATES } =
                 await loadFixture(deployDocumentFrameworkFixture);
 
@@ -267,19 +267,20 @@ describe("Suite di Test: Modulo Documentale e Macchina a Stati (DocumentRegistry
                 sampleDossierId, validBankCredId, uif.address, initialCid, initialDek, dekCommitment
             );
 
-            // Verifica che al submit il previousVersionHash sia bytes32(0)
             const dossierV0 = await docRegistry.dossiers(sampleDossierId);
             expect(dossierV0.previousVersionHash).to.equal(ethers.ZeroHash);
 
             const newCid = ethers.toUtf8Bytes("ipfs://cid-versione-2");
             const c2 = CryptoEngine.computeDEKCommitment(CryptoEngine.generateDEK());
+            const newDek = ethers.toUtf8Bytes("0xDek2");
 
-            // L'hash atteso è keccak256 del CID iniziale (initialCid)
-            const expectedPrevHash = ethers.keccak256(initialCid);
+            const expectedPrevHash = ethers.keccak256(
+                ethers.solidityPacked(["bytes", "bytes32", "bytes"], [initialCid, dekCommitment, initialDek])
+            );
 
             await expect(docRegistry.connect(uif).transitionDossier(
                 sampleDossierId, STATES.UNDER_ANALYSIS, uif.address,
-                newCid, ethers.toUtf8Bytes("0xDek2"), c2
+                newCid, newDek, c2
             )).to.emit(docRegistry, "DossierVersioned")
                 .withArgs(sampleDossierId, expectedPrevHash, newCid, c2);
 
@@ -295,34 +296,31 @@ describe("Suite di Test: Modulo Documentale e Macchina a Stati (DocumentRegistry
                 sampleDossierId, validBankCredId, uif.address, initialCid, initialDek, dekCommitment
             );
 
-            // Transizione V0 → V1 (SUBMITTED → UNDER_ANALYSIS)
             const cidV1 = ethers.toUtf8Bytes("ipfs://cid-v1");
+            const dekV1 = ethers.toUtf8Bytes("0xDek1");
             const c1 = CryptoEngine.computeDEKCommitment(CryptoEngine.generateDEK());
             await docRegistry.connect(uif).transitionDossier(
-                sampleDossierId, STATES.UNDER_ANALYSIS, uif.address,
-                cidV1, ethers.toUtf8Bytes("0xDek1"), c1
+                sampleDossierId, STATES.UNDER_ANALYSIS, uif.address, cidV1, dekV1, c1
             );
 
-            // Il previousVersionHash di V1 punta a V0
-            const hashV0 = ethers.keccak256(initialCid);
+            const hashV0 = ethers.keccak256(
+                ethers.solidityPacked(["bytes", "bytes32", "bytes"], [initialCid, dekCommitment, initialDek])
+            );
             const dossierV1 = await docRegistry.dossiers(sampleDossierId);
             expect(dossierV1.previousVersionHash).to.equal(hashV0);
 
-            // Transizione V1 → V2 (UNDER_ANALYSIS → FISCAL_REVIEW)
             const cidV2 = ethers.toUtf8Bytes("ipfs://cid-v2");
+            const dekV2 = ethers.toUtf8Bytes("0xDek2");
             const c2 = CryptoEngine.computeDEKCommitment(CryptoEngine.generateDEK());
             await docRegistry.connect(uif).transitionDossier(
-                sampleDossierId, STATES.FISCAL_REVIEW, uif.address,
-                cidV2, ethers.toUtf8Bytes("0xDek2"), c2
+                sampleDossierId, STATES.FISCAL_REVIEW, uif.address, cidV2, dekV2, c2
             );
 
-            // Il previousVersionHash di V2 punta a V1 (keccak256 di cidV1)
-            const hashV1 = ethers.keccak256(cidV1);
+            const hashV1 = ethers.keccak256(
+                ethers.solidityPacked(["bytes", "bytes32", "bytes"], [cidV1, c1, dekV1])
+            );
             const dossierV2 = await docRegistry.dossiers(sampleDossierId);
             expect(dossierV2.previousVersionHash).to.equal(hashV1);
-
-            // La catena è: V2.prevHash → V1.prevHash → V0 (bytes32(0))
-            // Ogni anello è verificabile off-chain risalendo gli eventi DossierVersioned
         });
     });
 });

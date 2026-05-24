@@ -220,5 +220,28 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
             await expect(delegationManager.connect(unauthorizedUser).logDispute(dossierId, "Tentativo di frode"))
                 .to.be.revertedWithCustomError(delegationManager, "OnlyHandlerCanDispute");
         });
+
+        it("Dovrebbe permettere a una Core Authority di risolvere una disputa attiva", async function () {
+            const { delegationManager, uif, dossierId } = await loadFixture(deployDelegationFixture);
+
+            await delegationManager.connect(uif).logDispute(dossierId, "Chiave DEK compromessa").then((tx: any) => tx.wait());
+            expect(await delegationManager.activeDisputes(dossierId)).to.be.true;
+
+            await expect(delegationManager.connect(uif).resolveDispute(dossierId))
+                .to.emit(delegationManager, "DisputeResolved")
+                .withArgs(dossierId, uif.address);
+
+            expect(await delegationManager.activeDisputes(dossierId)).to.be.false;
+        });
+
+        it("Dovrebbe impedire a un non-authority di risolvere una disputa", async function () {
+            const { delegationManager, uif, unauthorizedUser, dossierId } = await loadFixture(deployDelegationFixture);
+
+            await delegationManager.connect(uif).logDispute(dossierId, "Chiave DEK compromessa").then((tx: any) => tx.wait());
+
+            await expect(delegationManager.connect(unauthorizedUser).resolveDispute(dossierId))
+                .to.be.revertedWithCustomError(delegationManager, "NotCoreAuthority");
+        });
     });
 });
+

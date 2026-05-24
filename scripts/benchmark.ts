@@ -113,8 +113,8 @@ async function main() {
         policyManager.connect(gdf).voteUpgrade(0));
 
     const bankCredId = ethers.id("VC-AUTH-BANCA-001");
-    await measureTx("Issue Verifiable Credential",
-        credRegistry.connect(uif).issueCredential(bankCredId, bank.address, ethers.id("HASH")));
+    await measureTx("1. Emissione Verifiable Credential",
+        credRegistry.connect(deployer).issueCredential(bankCredId, bank.address, ethers.id("HASH")));
 
     const dek = CryptoEngine.generateDEK();
     const dekCommitment = CryptoEngine.computeDEKCommitment(dek);
@@ -180,7 +180,7 @@ async function main() {
     // Pre-emissione di N credenziali (una per dossier)
     for (let i = 0; i < N_DOSSIERS; i++) {
         const credId = ethers.id(`VC-THROUGHPUT-${i}`);
-        await credRegistry.connect(uif)
+        await credRegistry.connect(deployer)
             .issueCredential(credId, bank.address, ethers.id(`HASH-${i}`))
             .then((tx: any) => tx.wait());
     }

@@ -34,12 +34,11 @@ contract CredentialRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeabl
         __Ownable_init(initialOwner);
     }
 
-    // Emette una nuova credenziale. L'hash registrato è il presentationHash della Selective Disclosure.
     function issueCredential(
         bytes32 credId,
         address subject,
         bytes32 credentialHash
-    ) external {
+    ) external onlyOwner {
         if(credentials[credId].issuedAt != 0) revert CredentialAlreadyExists();
 
         credentials[credId] = Credential({
