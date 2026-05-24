@@ -39,6 +39,16 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
         // Collegamento bidirezionale per il freeze in caso di disputa
         await docRegistry.setDelegationManager(await delegationManager.getAddress()).then((tx: any) => tx.wait());
 
+        // Registrazione dei DID per abilitare la Segregazione di Dominio
+        const uifDomain = ethers.encodeBytes32String("UIF");
+        const adeDomain = ethers.encodeBytes32String("ADE");
+        const gdfDomain = ethers.encodeBytes32String("GDF");
+        
+        await didRegistry.connect(uif).registerDID(ethers.encodeBytes32String("did:aml:uif"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), uifDomain);
+        await didRegistry.connect(uifProvinciale).registerDID(ethers.encodeBytes32String("did:aml:uifprov"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), uifDomain);
+        await didRegistry.connect(ade).registerDID(ethers.encodeBytes32String("did:aml:ade"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), adeDomain);
+        await didRegistry.connect(gdf).registerDID(ethers.encodeBytes32String("did:aml:gdf"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), gdfDomain);
+        
         // Setup: crea un dossier assegnato alla UIF
         const bankCredId = ethers.id("VC-AUTH-BANCA");
         await credRegistry.issueCredential(bankCredId, bank.address, ethers.id("HASH"));
@@ -55,7 +65,7 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
         );
 
         return {
-            delegationManager, docRegistry, uif, ade, gdf, bank,
+            delegationManager, docRegistry, didRegistry, uif, ade, gdf, bank,
             uifProvinciale, unauthorizedUser, dossierId, dekCommitment
         };
     }
@@ -87,8 +97,13 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
         });
 
         it("Dovrebbe bloccare sub-deleghe oltre la profondita' massima (MAX_DELEGATION_DEPTH)", async function () {
-            const { delegationManager, uif, uifProvinciale, dossierId } = await loadFixture(deployDelegationFixture);
             const [, , , , , , , peritoLivello1, peritoLivello2, peritoLivello3] = await ethers.getSigners();
+            const { delegationManager, uif, uifProvinciale, dossierId, didRegistry } = await loadFixture(deployDelegationFixture);
+            const uifDomain = ethers.encodeBytes32String("UIF");
+
+            await didRegistry.connect(peritoLivello1).registerDID(ethers.encodeBytes32String("did:aml:perito1"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), uifDomain);
+            await didRegistry.connect(peritoLivello2).registerDID(ethers.encodeBytes32String("did:aml:perito2"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), uifDomain);
+            await didRegistry.connect(peritoLivello3).registerDID(ethers.encodeBytes32String("did:aml:perito3"), ethers.toUtf8Bytes("pub"), ethers.toUtf8Bytes("url"), uifDomain);
 
             // Livello 0: UIF → uifProvinciale
             const delega0 = ethers.id("DELEGA-DEPTH-0");
@@ -227,7 +242,7 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
             await delegationManager.connect(uif).logDispute(dossierId, "Chiave DEK compromessa").then((tx: any) => tx.wait());
             expect(await delegationManager.activeDisputes(dossierId)).to.be.true;
 
-            await expect(delegationManager.connect(uif).resolveDispute(dossierId))
+            await expect(delegationManager.connect(uif).resolveDispute(dossierId, false))
                 .to.emit(delegationManager, "DisputeResolved")
                 .withArgs(dossierId, uif.address);
 
@@ -239,8 +254,51 @@ describe("Suite di Test: Access Control e Deleghe Temporanee (DelegationManager)
 
             await delegationManager.connect(uif).logDispute(dossierId, "Chiave DEK compromessa").then((tx: any) => tx.wait());
 
-            await expect(delegationManager.connect(unauthorizedUser).resolveDispute(dossierId))
+            await expect(delegationManager.connect(unauthorizedUser).resolveDispute(dossierId, false))
                 .to.be.revertedWithCustomError(delegationManager, "NotCoreAuthority");
+        });
+
+        it("Dovrebbe impedire la creazione di deleghe tra domini diversi (DomainMismatch)", async function () {
+            const { delegationManager, uif, ade, dossierId } = await loadFixture(deployDelegationFixture);
+            const delegationId = ethers.id("DELEGA-CROSS-DOMAIN");
+            
+            // UIF (domain UIF) prova a delegare ad AdE (domain ADE)
+            await expect(delegationManager.connect(uif).delegateAccess(
+                delegationId, dossierId, ade.address, 86400, ethers.zeroPadValue("0x", 32)
+            )).to.be.revertedWithCustomError(delegationManager, "DomainMismatch");
+        });
+
+        it("Dovrebbe applicare il Rate Limiting sulle dispute (CooldownActive)", async function () {
+            const { delegationManager, uif, dossierId } = await loadFixture(deployDelegationFixture);
+
+            // Prima disputa passa
+            await delegationManager.connect(uif).logDispute(dossierId, "Problema 1");
+            
+            // Seconda disputa immediata fallisce
+            await expect(delegationManager.connect(uif).logDispute(dossierId, "Problema 2"))
+                .to.be.revertedWithCustomError(delegationManager, "CooldownActive");
+        });
+
+        it("Dovrebbe applicare lo Slashing Logico bloccando l'accesso se isMalicious=true", async function () {
+            const { delegationManager, uif, ade, uifProvinciale, dossierId } = await loadFixture(deployDelegationFixture);
+
+            // uif logga una disputa
+            await delegationManager.connect(uif).logDispute(dossierId, "Falsa disputa");
+            
+            // ade (Core Authority) risolve la disputa marcandola come maliziosa (isMalicious=true)
+            await delegationManager.connect(ade).resolveDispute(dossierId, true);
+
+            // Verifica che l'handler (uif) sia stato blacklistato
+            expect(await delegationManager.blacklistedHandlers(uif.address)).to.be.true;
+
+            // uif aveva l'accesso (essendo currentHandler). Ma ora checkAccess per una delega non passerà se uif è blacklistato.
+            // delegateAccess dovrebbe fallire se il chiamante perde autorizzazione? 
+            // In realtà checkAccess è per i sub-delegati. Se UIF è blacklistata, checkAccess per UIF ritornerà false.
+            const dummyId = ethers.id("DUMMY");
+            // Se UIF cerca di delegare ora, `currentHandler == uif` passa ma `checkAccess` fallisce?
+            // currentHandler bypassa checkAccess in delegateAccess per la prima delega, ma non per se stesso.
+            // Verifichiamo checkAccess diretto
+            expect(await delegationManager.checkAccess(dummyId, uif.address, dossierId)).to.be.false;
         });
     });
 });

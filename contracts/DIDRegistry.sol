@@ -11,6 +11,7 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
         address owner;
         bytes publicKey;       // Chiave pubblica RSA usata per le Buste Digitali
         bytes serviceEndpoint; // URL del nodo off-chain dell'ente
+        bytes32 domain;        // Dominio istituzionale (es. "ADE", "GDF")
         uint256 createdAt;
         uint256 updatedAt;
         bool active;
@@ -43,7 +44,8 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     function registerDID(
         bytes32 did,
         bytes calldata publicKey,
-        bytes calldata serviceEndpoint
+        bytes calldata serviceEndpoint,
+        bytes32 domain
     ) external {
         if (_registered[msg.sender]) revert AlreadyRegistered(msg.sender);
         if (did == bytes32(0)) revert InvalidDID();
@@ -53,6 +55,7 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
             owner: msg.sender,
             publicKey: publicKey,
             serviceEndpoint: serviceEndpoint,
+            domain: domain,
             createdAt: block.timestamp,
             updatedAt: block.timestamp,
             active: true
@@ -112,6 +115,12 @@ contract DIDRegistry is Initializable, OwnableUpgradeable, UUPSUpgradeable {
     function isActive(bytes32 did) external view returns (bool) {
         address owner = _didToOwner[did];
         return _registered[owner] && _documents[owner].active;
+    }
+
+    // Restituisce il dominio associato a un address. Ritorna bytes32(0) se non registrato.
+    function getDomain(address owner) external view returns (bytes32) {
+        if (!_registered[owner]) return bytes32(0);
+        return _documents[owner].domain;
     }
 
     function _authorizeUpgrade(address newImplementation) internal override onlyOwner {}

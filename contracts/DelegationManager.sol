@@ -22,6 +22,7 @@ interface IDocumentRegistry {
 // true in tutti gli altri casi (non registrato = non revocato = permesso).
 interface IDIDRegistry {
     function isActiveByAddress(address owner) external view returns (bool);
+    function getDomain(address owner) external view returns (bytes32);
 }
 
 contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable {
@@ -33,6 +34,9 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
     error MaxDepthExceeded();
     error NotCoreAuthority();
     error DisputeNotActive();
+    error DomainMismatch();
+    error CooldownActive();
+    error HandlerBlacklisted();
 
     // Profondità massima della catena di sub-deleghe (0=Core, 1=Provinciale, 2=Perito)
     uint8 public constant MAX_DELEGATION_DEPTH = 2;
@@ -57,6 +61,8 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
 
     mapping(bytes32 => Delegation) public delegations;
     mapping(bytes32 => bool) public activeDisputes;
+    mapping(address => uint256) public lastDisputeTime;
+    mapping(address => bool) public blacklistedHandlers;
 
     event AccessDelegated(bytes32 indexed delegationId, bytes32 indexed dossierId, address indexed delegator, address delegatee, uint8 depth);
     event DelegationRevoked(bytes32 indexed delegationId);
@@ -101,6 +107,16 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
             revert NotAuthorizedToDelegate();
         }
         if (delegations[delegationId].delegator != address(0)) revert DelegationIdAlreadyInUse();
+
+        // Domain Enforcement: delegator e delegatee devono appartenere allo stesso dominio istituzionale.
+        // Se non hanno un DID, getDomain ritorna bytes32(0), impedendo deleghe sicure.
+        if (address(didRegistry) != address(0)) {
+            bytes32 delegatorDomain = didRegistry.getDomain(msg.sender);
+            bytes32 delegateeDomain = didRegistry.getDomain(delegatee);
+            if (delegatorDomain == bytes32(0) || delegatorDomain != delegateeDomain) {
+                revert DomainMismatch();
+            }
+        }
 
         uint8 newDepth = 0;
         if (parentDelegationId != bytes32(0)) {
@@ -173,6 +189,11 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
             return false;
         }
 
+        // Se l'utente è stato blacklistato (Slashing Logico per False Dispute), perde tutti gli accessi.
+        if (blacklistedHandlers[user]) {
+            return false;
+        }
+
         if (d.parentDelegationId != bytes32(0)) {
             return checkAccess(d.parentDelegationId, d.delegator, dossierId);
         }
@@ -182,19 +203,27 @@ contract DelegationManager is Initializable, OwnableUpgradeable, UUPSUpgradeable
 
     // Segnala un'anomalia crittografica sul dossier. Emette il dekCommitment on-chain come prova.
     function logDispute(bytes32 dossierId, string calldata reason) external {
+        if (block.timestamp < lastDisputeTime[msg.sender] + 24 hours) revert CooldownActive();
+        
         (, address currentHandler, , , , bytes32 commitment, ) = documentRegistry.dossiers(dossierId);
         if (currentHandler != msg.sender) revert OnlyHandlerCanDispute();
 
+        lastDisputeTime[msg.sender] = block.timestamp;
         activeDisputes[dossierId] = true;
 
         emit DisputeLogged(dossierId, msg.sender, reason, commitment);
     }
 
     // Risolve una disputa attiva su un dossier, riabilitando le transizioni di stato.
-    // Chiamabile solo da una Core Authority.
-    function resolveDispute(bytes32 dossierId) external {
+    // Chiamabile solo da una Core Authority. Supporta lo Slashing Logico se la disputa era dolosa.
+    function resolveDispute(bytes32 dossierId, bool isMalicious) external {
         if (!isCoreAuthority[msg.sender]) revert NotCoreAuthority();
         if (!activeDisputes[dossierId]) revert DisputeNotActive();
+
+        if (isMalicious) {
+            (, address currentHandler, , , , , ) = documentRegistry.dossiers(dossierId);
+            blacklistedHandlers[currentHandler] = true;
+        }
 
         activeDisputes[dossierId] = false;
 

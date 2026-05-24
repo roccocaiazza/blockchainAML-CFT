@@ -93,8 +93,23 @@ async function main() {
         didRegistry.connect(bank).registerDID(
             ethers.encodeBytes32String("did:aml:banca_x"),
             ethers.toUtf8Bytes("0xPublicKeyMock"),
-            ethers.toUtf8Bytes("https://api.banca.it")
+            ethers.toUtf8Bytes("https://api.banca.it"),
+            ethers.encodeBytes32String("BANK")
         ));
+        
+    await didRegistry.connect(ade).registerDID(
+        ethers.encodeBytes32String("did:aml:ade"),
+        ethers.toUtf8Bytes("pub"),
+        ethers.toUtf8Bytes("url"),
+        ethers.encodeBytes32String("ADE")
+    ).then((tx: any) => tx.wait());
+    
+    await didRegistry.connect(uifProvinciale).registerDID(
+        ethers.encodeBytes32String("did:aml:adeprov"),
+        ethers.toUtf8Bytes("pub"),
+        ethers.toUtf8Bytes("url"),
+        ethers.encodeBytes32String("ADE")
+    ).then((tx: any) => tx.wait());
 
     await measureTx("Propose Bank Onboarding",
         policyManager.connect(uif).proposeBankOnboarding(bank.address));

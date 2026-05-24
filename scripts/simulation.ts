@@ -66,9 +66,9 @@ async function main() {
     const keysBank = CryptoEngine.generateRSAKeyPair();
 
     await Promise.all([
-        didService.registerDID(uif, "did:aml:uif", keysUIF.publicKey, "https://api.uif.it"),
-        didService.registerDID(ade, "did:aml:ade", keysAdE.publicKey, "https://api.ade.it"),
-        didService.registerDID(bank, "did:aml:banca_x", keysBank.publicKey, "https://api.bancax.it")
+        didService.registerDID(uif, "did:aml:uif", keysUIF.publicKey, "https://api.uif.it", "UIF"),
+        didService.registerDID(ade, "did:aml:ade", keysAdE.publicKey, "https://api.ade.it", "ADE"),
+        didService.registerDID(bank, "did:aml:banca_x", keysBank.publicKey, "https://api.bancax.it", "BANK")
     ]);
 
     // FASE 2: Onboarding della Banca — Quorum 2/3 + Timelock 48h
